@@ -1,0 +1,545 @@
+---
+title: "Understanding Alcohol Use in Canada"
+author: "Dhanraj Patel"
+date: '2021-12-17'
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+    toc_float: yes
+---
+# setting up libraries needed
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(opendatatoronto)
+library(MASS)
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(visdat)
+library(car)
+library(leaps)
+```
+
+
+
+# loading and cleaning data
+```{r}
+
+data2018 <- read.csv("cchs-82M0013-E-2017-2018-Annual-component_F1.csv") 
+
+finaldata2018 <- data2018 %>%
+  select(-DHHDGLVG, -DHHDG611, -DHHDGLE5, -DOALC,-ALC_005, -ALC_010, -ALC_015, -ALC_020, -DOALW, -ALW_005, -ALW_010,-ALW_015, -ALW_020, -ALW_025, -ALW_030, -ALW_035, -ALW_040, -ALWDVDLY, -X)
+
+
+finaldata2018 <-finaldata2018 %>% 
+  filter(ALWDVWKY < 996)
+
+finaldata2018 <-finaldata2018 %>% 
+  filter(DHHGMS < 9)
+
+finaldata2018 <-finaldata2018 %>% 
+  filter(DHHDGHSZ < 9)
+
+finaldata2018 <-finaldata2018 %>% 
+  filter(ALCDVTTM < 9)
+
+finaldata2018 <-finaldata2018 %>% 
+  filter(DHH_OWN < 6)
+
+
+data <- tibble::rowid_to_column(finaldata2018, "ID") # needed to separate dataset for validation
+
+
+
+```
+
+#seperating dataset into two halves for validation purposes
+```{r}
+
+
+set.seed(1)
+train <- data[sample(1:nrow(data), 18152, replace=F), ]
+test <- data[which(!(data$ID %in% train$ID)),] 
+
+```
+
+#removing ID variable column in datasets
+```{r}
+
+train<- train %>%
+  dplyr::select(-ID)
+
+
+test<- test %>%
+  dplyr::select(-ID)
+
+finaldata2018 <- train
+```
+
+
+#EDA of all potential variables in model
+```{r}
+par(mfrow=c(3,3))
+hist(finaldata2018$DHH_SEX,main="Histogram of sex ", xlab="1:female 2: male", ylab="count", border="blue", col="green")
+hist(finaldata2018$DHHGMS,main="Histogram of Martital Stutus",xlab="1:married 2:common Law 3:divorced: 4: single", ylab="count", border="blue", col="blue")
+hist(finaldata2018$DHHDGHSZ,main="Histogram of Household size", xlab="Num of people in household", ylab="count", border="blue", col="orange")
+hist(finaldata2018$DHHDGL12,main="Has kids in household",  xlab="0: none 1:one or more ", ylab="count", border="blue", col="red")
+hist(finaldata2018$DHHGAGE,main="Histogram of age intervals", xlab="Age intervals", ylab="count", border="blue", col="yellow")
+hist(finaldata2018$ALCDVTTM,main="Type of drinker", xlab="1:regular 2: non regular", ylab="count", border="blue", col="purple")
+hist(finaldata2018$ALWDVLTR,main="Has experienced Long term effects", xlab="1: yes 2:no", ylab="count", border="blue", col="pink")
+hist(finaldata2018$ALWDVSTR,main="Has experienced short term effects", xlab="1: yes 2:no", ylab="count", border="blue", col="grey")
+hist(finaldata2018$DHH_OWN,main="Owns House", xlab="1:owns 2:rents", ylab="count", border="blue", col="black")
+
+
+
+```
+
+#numerical summaries for response variable
+
+```{r}
+
+
+
+avgstat <- finaldata2018 %>%
+  dplyr::select(ALWDVWKY) %>%
+  summarize(
+  Count = n(),
+  Min = min(ALWDVWKY),
+  Q1 = quantile(ALWDVWKY, c(.25)),
+  Median = median(ALWDVWKY),
+  Q3 = quantile(ALWDVWKY, c(.75)),
+  Max = max(ALWDVWKY), 
+  IQR = quantile(ALWDVWKY, c(.75))- quantile(ALWDVWKY, c(.25)), 
+  Mean = round(mean(ALWDVWKY), 2),
+  Trimmean = round(mean(ALWDVWKY, trim = 0.1),2), 
+  Var = round(var(ALWDVWKY)),
+  SD = round(sd(ALWDVWKY),2), 
+  Range = max(ALWDVWKY)-min(ALWDVWKY))
+
+knitr::kable(avgstat, caption = "The trimmed mean is trimmed by 10 percent")
+
+
+```
+
+
+
+ 
+
+
+#seeing properties of model with all predictors
+```{r}
+
+
+fullmod <- lm(ALWDVWKY ~.,  data = finaldata2018)
+summary(fullmod)
+
+```
+
+#identifying properties of model with all possible predictcor model
+```{r}
+
+# assumptions
+pairs(finaldata2018[,-c(7)])
+
+plot(finaldata2018$ALWDVWKY ~ fitted(fullmod), main="Y versus Y-hat", xlab="Y-hat", ylab="Y")
+lines(lowess(finaldata2018$ALWDVWKY ~ fitted(fullmod)), lty=2)
+
+r <- resid(fullmod)
+
+
+plot(r ~ fitted(fullmod), main="title", xlab="x", ylab="res.")
+plot(r ~ finaldata2018$DHH_SEX, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$DHHGMS, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$DHHDGHSZ, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$DHHDGL12, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$DHHGAGE, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$ALCDVTTM, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$ALWDVLTR, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$ALWDVSTR, main="title", xlab="x", ylab="res")
+plot(r ~ finaldata2018$DHH_OWN, main="title", xlab="x", ylab="res")
+
+qqnorm(r)
+qqline(r)
+
+# VIF score
+vif(fullmod)
+
+
+```
+
+
+
+#using best subset model sleection on full model
+```{r}
+
+
+
+best <- regsubsets(ALWDVWKY ~., data=finaldata2018, nbest=1)
+summary(best)
+
+```
+
+
+#using backwards subset model sleection on full model
+
+```{r}
+
+stepAIC(lm(ALWDVWKY ~ ., data=finaldata2018),
+scope=list(lower=lm(ALWDVWKY ~ 1, data=finaldata2018)),
+direction = "backward", k=2)
+
+finmod <- lm(ALWDVWKY ~ ALWDVSTR + ALWDVLTR + ALCDVTTM + DHHGAGE +DHH_SEX,  data = finaldata2018)
+summary(finmod)
+
+vif(finmod) # vif score of recommended model
+```
+
+#identifying properties of decided model
+```{r}
+
+#dataset with only decided predictors in final model
+selecteddata <- finaldata2018 %>%
+  dplyr::select(ALWDVWKY, ALWDVSTR, ALWDVLTR, ALCDVTTM, DHHGAGE, DHH_SEX)
+
+
+#model with decided predictors
+finmod <- lm(ALWDVWKY ~ ALWDVSTR + ALWDVLTR + ALCDVTTM + DHHGAGE +DHH_SEX,  data = selecteddata)
+
+
+#checking assumptions of model with decided predictors
+pairs(selecteddata[,-c(1)])
+
+
+
+plot(selecteddata$ALWDVWKY ~ fitted(finmod), main="Y versus Y-hat", xlab="Y-hat", ylab="Y")
+lines(lowess(selecteddata$ALWDVWKY ~ fitted(fullmod)), lty=2)
+
+r <- resid(finmod)
+
+
+plot(r ~ fitted(finmod), main="title", xlab="x", ylab="res.")
+plot(r ~ selecteddata$DHH_SEX, main="title", xlab="x", ylab="res")
+plot(r ~ selecteddata$DHHGAGE, main="title", xlab="x", ylab="res")
+plot(r ~ selecteddata$ALCDVTTM, main="title", xlab="x", ylab="res")
+plot(r ~ selecteddata$ALWDVLTR, main="title", xlab="x", ylab="res")
+plot(r ~ selecteddata$ALWDVSTR, main="title", xlab="x", ylab="res")
+
+
+qqnorm(r)
+qqline(r)
+
+vif(fullmod) #vif score
+
+#boxcox of model
+p <- powerTransform(cbind(selecteddata[,1] + 0.000000000001, selecteddata[,2]+ 0.000000000001, selecteddata[,3]+ 0.000000000001, selecteddata[,4]+ 0.000000000001, selecteddata[,5]+ 0.000000000001, selecteddata[,6])~ 1)
+
+summary(p)
+
+#applying boxcox transformations found earlier
+selecteddata <- selecteddata %>%
+  mutate( new_ALWDVWKY = (ALWDVWKY)**0.5)
+selecteddata <- selecteddata %>%
+  mutate( new_ALWDVSTR = (ALWDVSTR)**10)
+selecteddata <- selecteddata %>%
+  mutate( new_ALWDVLTR = (ALWDVLTR)**7)
+selecteddata <- selecteddata %>%
+  mutate( new_ALCDVTTM = (ALCDVTTM)**-5.5)
+selecteddata <- selecteddata %>%
+  mutate( new_DHH_SEX = (DHH_SEX)**0.5)
+
+#dataset with only transformed variables
+justinc <- selecteddata %>%
+  dplyr::select(new_ALWDVWKY, new_ALWDVSTR, new_ALWDVLTR, new_ALCDVTTM, DHHGAGE, new_DHH_SEX)
+
+
+
+
+#model with  transformed variables
+finmod3 <- lm(new_ALWDVWKY ~ new_ALWDVSTR + new_ALWDVLTR + new_ALCDVTTM + DHHGAGE +new_DHH_SEX,  data = justinc)
+summary(finmod3)
+
+temp <- justinc #needed so pairwise can print more descreptive names isntead of variable names
+colnames(temp) <- c("response", "Short term eff", "long term eff", "Type drinker", "AGE", "SEX")
+
+pairs(temp[,-c(1)])
+
+
+
+plot(justinc$new_ALWDVWKY ~ fitted(finmod3), main="Y versus Y-hat", xlab="Y-hat", ylab="Y")
+lines(lowess(justinc$new_ALWDVWKY ~ fitted(finmod3)), lty=2)
+
+r <- resid(finmod3)
+
+par(mfrow=c(2,4))
+plot(r ~ fitted(finmod3), main="Res plot fitted", xlab="fitted", ylab="res")
+plot(r ~ justinc$new_DHH_SEX, main="res of SEX", xlab="SEX", ylab="res")
+plot(r ~ justinc$DHHGAGE, main="res of AGE", xlab="AGE", ylab="res")
+plot(r ~ justinc$new_ALCDVTTM, main="res of type of drinker", xlab="type", ylab="res")
+plot(r ~ justinc$new_ALWDVLTR, main="res of Long term eff", xlab="Long term eff", ylab="res")
+plot(r ~ justinc$new_ALWDVSTR, main="res of short terme eff", xlab="Short term eff", ylab="res")
+qqnorm(r)
+qqline(r)
+
+vif(finmod3) # checking VIF
+```
+
+
+
+#outliers, leverage points and influential points
+```{r}
+
+#model
+finmod3 <- lm(new_ALWDVWKY ~ new_ALWDVSTR + new_ALWDVLTR + new_ALCDVTTM + DHHGAGE +new_DHH_SEX,  data = justinc)
+
+
+# leverage points
+n <- length(justinc$new_ALWDVWKY)
+p <- length(coef(finmod3))-1
+
+h <- hatvalues(finmod3)
+hcut <- 2*(p+1)/n
+
+w1 <- which(h > hcut)
+
+
+
+
+plot(justinc[,1]~justinc[,2], main="sqrt(Def) vs Temp", xlab="Temp", ylab="sqrt(Def)")
+points(justinc[w1,1]~justinc[w1,2], col="red", pch=19)
+plot(justinc[,1]~justinc[,3], main="sqrt(Def) vs Density", xlab="Density", ylab="sqrt(Def)")
+points(justinc[w1,1]~justinc[w1,3], col="red", pch=19)
+plot(justinc[,1]~justinc[,4], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(justinc[w1,1]~justinc[w1,4], col="red", pch=19)
+plot(justinc[,1]~justinc[,5], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(justinc[w1,1]~justinc[w1,5], col="red", pch=19)
+plot(justinc[,1]~justinc[,6], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(justinc[w1,1]~justinc[w1,6], col="red", pch=19)
+
+
+#outliers
+r <- rstandard(finmod3)
+
+w2 <- which(r < -4 | r > 4)
+
+par(mfrow=c(3,2))
+plot(justinc[,1]~justinc[,2], main="sqrt(Def) vs Temp", xlab="Temp", ylab="sqrt(Def)")
+points(justinc[w2,1]~justinc[w2,2], col="red", pch=19)
+plot(justinc[,1]~justinc[,3], main="sqrt(Def) vs Density", xlab="Density", ylab="sqrt(Def)")
+points(justinc[w2,1]~justinc[w2,3], col="red", pch=19)
+plot(justinc[,1]~justinc[,4], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(justinc[w2,1]~justinc[w2,4], col="red", pch=19)
+plot(justinc[,1]~justinc[,5], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(justinc[w2,1]~justinc[w2,5], col="red", pch=19)
+plot(justinc[,1]~justinc[,6], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(justinc[w2,1]~justinc[w2,6], col="red", pch=19)
+
+
+#influential points
+Dcutoff <- qf(0.5, p+1, n-p-1)
+D <- cooks.distance(finmod3)
+which(D > Dcutoff)
+
+
+DFFITScut <- 2*sqrt((p+1)/n)
+dfs <- dffits(finmod3)
+w3 <- which(abs(dfs) > DFFITScut)
+
+
+DFBETAcut <- 2/sqrt(n)
+dfb <- dfbetas(finmod3)
+w4 <- which(abs(dfb[,1]) > DFBETAcut)
+w5 <- which(abs(dfb[,2]) > DFBETAcut)
+w6 <- which(abs(dfb[,3]) > DFBETAcut)
+w7 <- which(abs(dfb[,4]) > DFBETAcut)
+w8 <- which(abs(dfb[,5]) > DFBETAcut)
+w9 <- which(abs(dfb[,6]) > DFBETAcut)
+
+w <- unique(c(w3,w4,w5,w6,w7,w8,w9))
+
+par(mfrow=c(3,2))
+plot(justinc[,1]~justinc[,2], main="weekly drinks vs short term eff", xlab="short term eff", ylab="weekly drinks")
+points(justinc[w,1]~justinc[w,2], col="red")
+plot(justinc[,1]~justinc[,3], main="weekly drinks vs long term eff", xlab="long term eff", ylab="weekly drinks")
+points(justinc[w,1]~justinc[w,3], col="red")
+plot(justinc[,1]~justinc[,4], main="weekly drinks vs type drinker", xlab="type drinker", ylab="weekly drinks")
+points(justinc[w,1]~justinc[w,4], col="red")
+plot(justinc[,1]~justinc[,5], main="weekly drinks vs age", xlab="age", ylab="weekly drinks")
+points(justinc[w,1]~justinc[w,5], col="red")
+plot(justinc[,1]~justinc[,6], main="weekly drinks vs sex", xlab="sex", ylab="weekly drinks")
+points(justinc[w,1]~justinc[w,6], col="red", pch=19)
+
+```
+
+
+
+
+#validation
+```{r}
+
+#variable means in final model for testing dataset
+mean(test$DHH_SEX)
+mean(test$DHHGAGE)
+mean(test$ALWDVSTR)
+mean(test$ALWDVLTR)
+mean(test$ALCDVTTM)
+mean(test$ALWDVWKY)
+
+#variable means in final model for traing dataset
+mean(train$DHH_SEX)
+mean(train$DHHGAGE)
+mean(train$ALWDVSTR)
+mean(train$ALWDVLTR)
+mean(train$ALCDVTTM)
+mean(train$ALWDVWKY)
+
+
+#dataset with only decided predictors in validating model
+valdata <- test %>%
+  dplyr::select(ALWDVWKY, ALWDVSTR, ALWDVLTR, ALCDVTTM, DHHGAGE, DHH_SEX)
+
+#transforming variables in testing dataset as done to training
+valdata <- valdata %>%
+  mutate( new_ALWDVWKY = (ALWDVWKY)**0.5)
+valdata <- valdata %>%
+  mutate( new_ALWDVSTR = (ALWDVSTR)**10)
+valdata <- valdata %>%
+  mutate( new_ALWDVLTR = (ALWDVLTR)**7)
+valdata <- valdata %>%
+  mutate( new_ALCDVTTM = (ALCDVTTM)**-5.5)
+valdata <- valdata %>%
+  mutate( new_DHH_SEX = (DHH_SEX)**0.5)
+
+
+
+# validation data with transformed variables
+finval <-lm(new_ALWDVWKY ~ new_ALWDVSTR + new_ALWDVLTR + new_ALCDVTTM + DHHGAGE +new_DHH_SEX,  data = valdata)
+summary(finval)
+
+
+```
+
+
+checking transformations and VIF of validation model
+```{r}
+
+
+
+
+#dataset with only decided predictors in validating model
+transformedvaldata <- valdata %>%
+  dplyr::select(new_ALWDVWKY, new_ALWDVSTR, new_ALWDVLTR, new_ALCDVTTM, DHHGAGE, new_DHH_SEX)
+
+#validation model
+finval <-lm(new_ALWDVWKY ~ new_ALWDVSTR + new_ALWDVLTR + new_ALCDVTTM + DHHGAGE +new_DHH_SEX,  data = valdata)
+
+
+
+#checking assumptions of validation model
+pairs(transformedvaldata[,-c(1)])
+
+plot(transformedvaldata$new_ALWDVWKY ~ fitted(finval), main="Y versus Y-hat", xlab="Y-hat", ylab="Y")
+lines(lowess(transformedvaldata$new_ALWDVWKY ~ fitted(finval)), lty=2)
+
+r <- resid(finval)
+
+
+plot(r ~ fitted(finval), main="title", xlab="x", ylab="res.")
+plot(r ~ transformedvaldata$new_DHH_SEX, main="title", xlab="x", ylab="res")
+plot(r ~ transformedvaldata$DHHGAGE, main="title", xlab="x", ylab="res")
+plot(r ~ transformedvaldata$new_ALCDVTTM, main="title", xlab="x", ylab="res")
+plot(r ~ transformedvaldata$new_ALWDVLTR, main="title", xlab="x", ylab="res")
+plot(r ~ transformedvaldata$new_ALWDVSTR, main="title", xlab="x", ylab="res")
+
+
+qqnorm(r)
+qqline(r)
+
+# VIF score
+vif(finval)
+```
+
+#Checking influential points on validation
+```{r}
+# validation model and dataset
+finval <-lm(new_ALWDVWKY ~ new_ALWDVSTR + new_ALWDVLTR + new_ALCDVTTM + DHHGAGE +new_DHH_SEX,  data = valdata)
+transformedvaldata
+
+# leverage points
+n <- length(transformedvaldata$new_ALWDVWKY)
+p <- length(coef(finval))-1
+
+h <- hatvalues(finval)
+hcut <- 2*(p+1)/n
+
+w1 <- which(h > hcut)
+
+
+
+
+plot(transformedvaldata[,1]~transformedvaldata[,2], main="sqrt(Def) vs Temp", xlab="Temp", ylab="sqrt(Def)")
+points(transformedvaldata[w1,1]~transformedvaldata[w1,2], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,3], main="sqrt(Def) vs Density", xlab="Density", ylab="sqrt(Def)")
+points(transformedvaldata[w1,1]~transformedvaldata[w1,3], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,4], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(transformedvaldata[w1,1]~transformedvaldata[w1,4], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,5], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(transformedvaldata[w1,1]~transformedvaldata[w1,5], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,6], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(transformedvaldata[w1,1]~transformedvaldata[w1,6], col="red", pch=19)
+
+
+#outliers
+r <- rstandard(finval)
+
+w2 <- which(r < -4 | r > 4)
+
+
+plot(transformedvaldata[,1]~transformedvaldata[,2], main="sqrt(Def) vs Temp", xlab="Temp", ylab="sqrt(Def)")
+points(transformedvaldata[w2,1]~transformedvaldata[w2,2], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,3], main="sqrt(Def) vs Density", xlab="Density", ylab="sqrt(Def)")
+points(transformedvaldata[w2,1]~transformedvaldata[w2,3], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,4], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(transformedvaldata[w2,1]~transformedvaldata[w2,4], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,5], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(transformedvaldata[w2,1]~transformedvaldata[w2,5], col="red", pch=19)
+plot(transformedvaldata[,1]~transformedvaldata[,6], main="sqrt(Def) vs Rate", xlab="Rate", ylab="sqrt(Def)")
+points(transformedvaldata[w2,1]~transformedvaldata[w2,6], col="red", pch=19)
+
+
+#influential points
+Dcutoff <- qf(0.5, p+1, n-p-1)
+D <- cooks.distance(finval)
+which(D > Dcutoff)
+
+
+DFFITScut <- 2*sqrt((p+1)/n)
+dfs <- dffits(finval)
+w3 <- which(abs(dfs) > DFFITScut)
+
+
+DFBETAcut <- 2/sqrt(n)
+dfb <- dfbetas(finval)
+w4 <- which(abs(dfb[,1]) > DFBETAcut)
+w5 <- which(abs(dfb[,2]) > DFBETAcut)
+w6 <- which(abs(dfb[,3]) > DFBETAcut)
+w7 <- which(abs(dfb[,4]) > DFBETAcut)
+w8 <- which(abs(dfb[,5]) > DFBETAcut)
+w9 <- which(abs(dfb[,6]) > DFBETAcut)
+
+w <- unique(c(w3,w4,w5,w6,w7,w8,w9))
+
+
+plot(transformedvaldata[,1]~transformedvaldata[,2], main="weekly drinks vs short term eff", xlab="short term eff", ylab="weekly drinks")
+points(transformedvaldata[w,1]~transformedvaldata[w,2], col="red")
+plot(transformedvaldata[,1]~transformedvaldata[,3], main="weekly drinks vs long term eff", xlab="long term eff", ylab="weekly drinks")
+points(transformedvaldata[w,1]~transformedvaldata[w,3], col="red")
+plot(transformedvaldata[,1]~transformedvaldata[,4], main="weekly drinks vs type drinker", xlab="type drinker", ylab="weekly drinks")
+points(transformedvaldata[w,1]~transformedvaldata[w,4], col="red")
+plot(transformedvaldata[,1]~transformedvaldata[,5], main="weekly drinks vs age", xlab="age", ylab="weekly drinks")
+points(transformedvaldata[w,1]~transformedvaldata[w,5], col="red")
+plot(transformedvaldata[,1]~transformedvaldata[,6], main="weekly drinks vs sex", xlab="sex", ylab="weekly drinks")
+points(transformedvaldata[w,1]~transformedvaldata[w,6], col="red", pch=19)
+```
+
